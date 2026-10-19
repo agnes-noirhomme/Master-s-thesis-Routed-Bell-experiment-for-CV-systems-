@@ -1,1 +1,1 @@
-
+This part focuses on certifying quantum correlations in a routed Bell setup using the same types of measurement as before. The measurement scenarios certifying nonlocality in a standard setup are used in the short-path component of the routed Bell experiment, while those that cannot certify nonlocality are implemented in the long-path component. This strategy can outperform a standard Bell experiment, as the long path component alone cannot certify nonlocality, whereas the whole routed setup can. 
