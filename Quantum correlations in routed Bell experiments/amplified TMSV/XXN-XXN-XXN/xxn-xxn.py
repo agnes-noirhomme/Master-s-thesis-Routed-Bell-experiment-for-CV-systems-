@@ -1,0 +1,384 @@
+import numpy as np
+from math import sqrt, log2, log, pi, cos, sin,acos,asin
+from scipy.optimize import linprog
+import itertools
+import numpy as np
+from math import sqrt, log2, log, pi, cos, sin,acos,asin
+from scipy.optimize import linprog
+import itertools
+from scipy.stats import multivariate_normal
+import math
+from scipy.optimize import differential_evolution, minimize
+from scipy.optimize import basinhopping
+from scipy.optimize import shgo
+from scipy.optimize import dual_annealing
+from itertools import permutations
+#number of outcomes 
+k_A = 2
+k_B = 2
+#number of measurements 
+n_A =3
+n_B =3
+
+def nosignalling(p,precision=1e-15): #check if the probabilities are non signalling
+    k_A,k_B,n_A,n_B=p.shape # creates an "array" of the dimension of 2 outcomes and n_A,n_B measurements 
+    #no signalling for Alice: 
+    for b in range(2): #2 outcomes 
+        for y in range (n_B): #number of measurements of Bob 
+            for x in range (n_A): # number of measurements of Alice
+                for xprime in range(n_A): # number of measurements of Alice
+                    if (x != xprime):
+                        test1=np.sum(p[:,b,x,y])
+                        test2=np.sum(p[:,b,xprime,y])
+                        if(abs((test1-test2))>precision):
+                            print("problem of no signalling for Alice")
+                            return False 
+
+    #no signaling for Bob
+    for a in range(2): #2 outcomes 
+        for x in range (n_A): #number of measurements of Alice 
+            for y in range (n_B): # number of measurements of Bib
+                for yprime in range(n_B): # number of measurements of Bob
+                    if (y != yprime):
+                        test1=np.sum(p[a,:,x,y])
+                        test2=np.sum(p[a,:,x,yprime])
+                        if((test1-test2)>precision):
+                            print("problem of no signalling for Bob")
+                            return False 
+
+    return True
+def negativity(p): # to find negatuve probabilties 
+    k_A,k_B,n_A,n_B=p.shape
+    for a in range(k_A):
+        for b in range(k_B):
+            for x in range(n_A):
+                for y in range(n_B):
+                    if (p[a,b,x,y]<0):
+                        print("error of negativity")
+                        return False 
+    return True 
+
+def normalised(p,precision=1e-15):
+    k_A,k_B,n_A,n_B=p.shape
+    for a in range(k_A):
+        for b in range(k_B):
+            for x in range(n_A):
+                for y in range(n_B):
+                    if ((abs(np.sum(p[:,:,x,y])-1))>precision) :
+                        print("normalisation error")
+                        print(np.sum(p[:,:,x,y]))
+                        return False        
+
+    return True
+def generate_local_deterministic_strategies(n_A, k_A, n_B, k_B):
+    """
+    Generate all local deterministic strategies (correlations) in a bipartite Bell scenario.
+    
+    Parameters:
+    -----------
+    n_A : int
+        Number of inputs for Alice
+    k_A : int
+        Number of outputs for Alice
+    n_B : int
+        Number of inputs for Bob
+    k_B : int
+        Number of outputs for Bob
+    
+    Returns:
+    --------
+    list of dict
+        Each dict contains:
+        - 'alice_strategy': tuple of Alice's outputs for each input
+        - 'bob_strategy': tuple of Bob's outputs for each input
+        - 'correlation': 4D numpy array p(a,b|x,y) of shape (k_A, k_B, n_A, n_B)
+    
+    Notes:
+    ------
+    Total number of strategies: k_A^n_A * k_B^n_B
+    """
+    
+    strategies = {} #empty dictionnary (dictionnary="list" but elements are accessed with a "key" that can be a number/string/etc (see: "counter:correlation")) compared to a list)
+    
+    # Generate all possible deterministic strategies for Alice
+    # Each strategy is a function x -> a, represented as a tuple of k_A choices
+    alice_strategies = list(itertools.product(range(k_A), repeat=n_A)) #creates all lambda_A=(a_1,...,a_M_A)
+    
+    # Generate all possible deterministic strategies for Bob
+    bob_strategies = list(itertools.product(range(k_B), repeat=n_B)) #creates all lambda_B=(b_1,...,b_M_A)
+    
+     # For each pair of strategies, create the correlation D_(alpha,beta)(a,b|x,y)= deta_a X delta_b ie the deterministic strategy
+    counter = 0
+    for alice_strat in alice_strategies:
+        for bob_strat in bob_strategies:
+            # alice_strat[x] is Alice's output for input x
+            # bob_strat[y] is Bob's output for input y
+            
+            # Create correlation matrix p(a,b|x,y)
+            correlation = {} #empty dictionnary 
+            for x in range(n_A):
+                for y in range(n_B):
+                    for a in range(k_A):
+                        for b in range(k_B):
+                            if a == alice_strat[x] and b == bob_strat[y]: #if use of deterministic strategies 
+                                correlation[a, b, x, y] = 1 #delta function =1
+                            else: #no use of determinisitic strategies 
+                                correlation[a, b, x, y] = 0 #delta function =0 if not the strategy used 
+            
+            strategies.update({counter: correlation}) #add the D_(alpha,beta)(a,b|x,y)= deta_a X delta_bin for the 2^3x2^3= 64 strategies, in the dictionary :{correlation_counter,...}={correlation_1,correlation_2,...} 
+            counter += 1 #count number of strategies 
+    
+    return strategies
+
+
+
+# def lin_prog(points,p, random_probability_distribution, LPmethod='highs'):
+#     """
+#     This is the dual formulation.
+#     Checks if p is inside convex hull of points
+#     if objective >= 1 , then p is inside the convex hull.
+#     if objective <1 , then p is outside.
+#     """
+#     ##### Using scipy (runs much faster) ###########
+#     if type(points[0]) == dict:
+#         points = np.array([list(point.values()) for point in points])
+
+#     if type(p) == dict:    
+#         p = np.array(list(p.values()))
+    
+#     if type(random_probability_distribution) == dict:
+#         random_probability_distribution = np.array(list(random_probability_distribution.values()))
+    
+#     n_points = len(points)
+#     n_dim = len(p)
+#     c = np.r_[1,np.zeros(n_points)]
+#     aux = np.r_[points.T,np.ones((1,n_points))].T
+#     iden = random_probability_distribution
+#     first_col=np.r_[iden-p,0]
+#     A=np.r_[[first_col],aux]
+#     b = np.r_[iden, 1]
+#     all_bounds = [(-1,1) for j in range(n_dim)]+[(None,None)] 
+#     """
+#     To be precise, there are no bounds at all on the dual variables. However, having the bound (-1,1) on the elements of the witness helps improve numerical stability. Note that the last element is the value of the witness on the point p, hence no bound on it. The solution is then checked with the primal solution to make sure that these bounds did not alter the solution. 
+#     """
+
+#     lp = linprog(b, A_ub=-A, b_ub=-c,  method = LPmethod , bounds = all_bounds, options= {'presolve':True, 'disp':False} )
+
+#     objective_value = lp.fun
+#     witness = -lp.x[:-1]
+#     witness_dictionary = convert_vector_to_dictionary(witness)
+#     maximum_value_of_witness_for_elements_in_points = lp.x[-1]
+#     value_of_witness_for_p = 1-objective_value+lp.x[-1]
+#     # check_instability = max(abs(max(lp.x)),abs(min(lp.x)))
+#     # print("max value encoutered in dual LP",check_instability)
+#     #print("successfull ran LP")
+#     return  objective_value, witness_dictionary, maximum_value_of_witness_for_elements_in_points,value_of_witness_for_p
+
+
+
+def in_hull(points, q):
+    ##if points/q is a list/collection of dictionnary -> conversion to array/matrix
+    # example: points = [{"x": 1, "y": 2},{"x": 3, "y": 4}] , then points[0] gives {"x": 1, "y": 2}=ONE dictionnary, points[1]={"x": 3, "y": 4}= ONE dictionnary etc ie it is a list of dictionnaries 
+    # -> this is then converted into an array: {"x": 1, "y": 2} -> [1,2]
+    if type(points[0]) == dict: 
+
+        points = np.array([list(points[j].values()) for j in range(len(points))])
+
+    if type(q) == dict:    #same here 
+        q = np.array(list(q.values())) 
+    #points and q are in an "array" now: 
+    points=np.array(points) 
+    q=np.array(q)
+
+    n_points = len(points) #number of elements in "points" ie deterministic points
+    n_dim = len(q) #dimension of q points (all probabilities)
+
+
+    #variable to max/minimise in the linear program
+    #-> example: min -x_0+4x_1 (subject to things) gives c=[-1,4], here we want to maximize nu ie minimize -nu -> c=[-1,0,...] (see linearprog in python)
+    c = np.r_[-1,np.zeros(n_points)]  #np.r ="add element successively in the array/matrix"
+    
+
+    aux = np.r_[points.T,np.ones((1,n_points))].T
+    iden=iden = np.sum(points,axis=0)/(len(points))
+
+    first_col=np.r_[iden-q,0]# first column of the matrix is 1-P_q and the rest is 0
+    A=np.r_[[first_col],aux].T 
+    b = np.r_[iden, 1] #b column: contains the identity and the last element (from sum_j p_j=1) is 1
+
+    lp = linprog(c, A_eq=A, b_eq=b , method ='highs', options= {'presolve':True, 'disp':False} )
+    
+    # check_instability = max(abs(max(lp.x)),abs(min(lp.x)))
+    # print("max value encoutered in primal LP",check_instability)
+    return -lp.fun
+
+
+
+#definition of my probabilities 
+def probxx00(theta1,theta3,z,lamb,r):#p(a=b=1|XX)
+    t=1-r
+    N=t+(lamb**2)*r
+    a=(t*(math.erf(z)**2))*(1/N)
+    b=-2*lamb*np.sqrt((r*t)/(np.pi))*math.exp(-(z**2))*math.erf(z)*z*(math.cos(2*theta1)+math.cos(2*theta3))*(1/N)
+    c=((lamb**2)*r*(1/N ))*((math.erf(z)**2)-(z+2*(z**3))*math.erf(z)*math.exp(-(z**2))/(np.sqrt(np.pi)))
+    d=((2*(lamb**2)*r)/((np.pi)*N))*(z**2)*math.exp(-2*(z**2))*math.cos(2*(theta1-theta3))
+    return a+b+c+d
+
+def probxx10(theta1,z,lamb,r): #P(a=1|X_theta1)
+    t=1-r
+    N=t+(lamb**2)*r
+    a=math.erf(z)*(t+(lamb**2)*r)*(1/N)
+    b=(((lamb**2)*r)/(2*N))*z*math.exp(-(z**2))*(1+2*(z**2))*(1/np.sqrt(np.pi))
+    c=(2*lamb*np.sqrt((r*t)/(np.pi))*math.exp(-(z**2))*z*math.cos(2*theta1))*(1/N)
+    return a-b-c
+
+
+
+
+def q(z,theta1,theta2,theta3,theta4,lamb,r): 
+    t=1-r
+    #creates the probabilities in the set  (that is either inside or outside the set of local model)
+    q = np.zeros((2, 2,3,3))
+    #00: X_theta1-X_theta3: 
+    #definitions for X-X measurement using PDF and CDF 
+    N=t+(lamb**2)*r
+    probax1x3=probxx00(theta1,theta3,z,lamb,r)
+    probax2x3=probxx00(theta2,theta3,z,lamb,r)
+    probax1x4=probxx00(theta1,theta4,z,lamb,r)
+    probax2x4=probxx00(theta2,theta4,z,lamb,r)
+    probax1=probxx10(theta1,z,lamb,r)#P(a=1|X)
+    probax2=probxx10(theta2,z,lamb,r)
+    probax3=probxx10(theta3,z,lamb,r)
+    probax4=probxx10(theta4,z,lamb,r)
+   #00: X_theta1-X_theta3
+    
+    q[1,1,0,0]=probax1x3
+    q[1,0,0,0]=probax1-q[1,1,0,0]
+    q[0,1,0,0]=probax3-q[1,1,0,0]
+    q[0,0,0,0]=1-q[1,1,0,0]-q[1,0,0,0]-q[0,1,0,0]
+
+
+   #X_theta2-X_theta3
+    q[1,1,1,0]=probax2x3
+    q[1,0,1,0]=probax2-q[1,1,1,0]
+    q[0,1,1,0]=probax3-q[1,1,1,0]
+    q[0,0,1,0]=1-q[1,1,1,0]-q[1,0,1,0]-q[0,1,1,0]
+
+    # X_theta1-X_tehta4
+    q[1,1,0,1]=probax1x4
+    q[1,0,0,1]=probax1-q[1,1,0,1]
+    q[0,1,0,1]=probax4-q[1,1,0,1]
+    q[0,0,0,1]=1-q[1,1,0,1]-q[1,0,0,1]-q[0,1,0,1]
+    
+
+    # Xtheta2-Xtheta4
+    q[1,1,1,1]=probax2x4
+    q[1,0,1,1]=probax2-q[1,1,1,1]
+    q[0,1,1,1]=probax4-q[1,1,1,1]
+    q[0,0,1,1]=1-q[1,1,1,1]-q[1,0,1,1]-q[0,1,1,1]
+
+
+
+    #independent on angle measurement 
+    # X_theta1-N->
+    q[1,1,0,2] = (((lamb**2)*r)/(2*N))*math.erf(z)
+    q[1,0,0,2] =probax1-q[1,1,0,2]
+    q[0,1,0,2] =(((lamb**2)*r)/(2*N))-q[1,1,0,2]
+    q[0,0,0,2] = 1-q[1,1,0,2]-q[1,0,0,2]-q[0,1,0,2]
+    
+
+    # #X_theta2-N-
+    q[1,1,1,2] = (((lamb**2)*r)/(2*N))*math.erf(z)
+    q[1,0,1,2] =probax2-q[1,1,1,2]
+    q[0,1,1,2] =(((lamb**2)*r)/(2*N))-q[1,1,1,2]
+    q[0,0,1,2] = 1- q[1,1,1,2]-q[1,0,1,2]-q[0,1,1,2] 
+
+
+    #N-X_theta3-
+    q[1,1,2,0] =(((lamb**2)*r)/(2*N))*math.erf(z)
+    q[1,0,2,0] =(((lamb**2)*r)/(2*N))-q[1,1,2,0]
+    q[0,1,2,0] =probax3-q[1,1,2,0]
+    q[0,0,2,0] = 1 - q[1,1,2,0] - q[1,0,2,0] - q[0,1,2,0]
+
+#    #N-X_theta4->
+    q[1,1,2,1] =(((lamb**2)*r)/(2*N))*math.erf(z)
+    q[1,0,2,1] =(((lamb**2)*r)/(2*N))-q[1,1,2,1]
+    q[0,1,2,1] =probax4-q[1,1,2,1]
+    q[0,0,2,1] = 1 - q[1,1,2,1] - q[1,0,2,1] - q[0,1,2,1]
+
+
+
+    #     ##N-N ->OK
+#     # ->+1 outcome:= non vacuum ans -1: vacuum
+    q[0,0,2,2]=(t/N)
+    q[1,0,2,2]=(((lamb**2)*r)/(2*N))
+    q[0,1,2,2]=(((lamb**2)*r)/(2*N))
+    q[1,1,2,2]=0
+
+
+   
+
+    return q
+
+def I3322(q_test,x1,x2,x3,y1,y2,y3):#definition of I3322
+    valeur1=q_test[1,1,x1,y1]+q_test[1,1,x1,y2] +q_test[1,1,x1,y3]+q_test[1,1,x2,y1]+q_test[1,1,x2,y2]-q_test[1,1,x2,y3]+q_test[1,1,x3,y1]-q_test[1,1,x3,y2]
+    P_A1=q_test[1,0,x1,y1]+q_test[1,1,x1,y1]
+    P_B1=q_test[0,1,x1,y1]+q_test[1,1,x1,y1]
+    P_B2=q_test[0,1,x1,y2]+q_test[1,1,x1,y2]
+    valeur2=P_A1+2*P_B1+P_B2
+    return valeur1- valeur2
+
+def allI3322(q_test,x1,x2,x3,y1,y2,y3):
+    best_valeur=-float("inf")
+    for p in permutations([x1, x2, x3]):
+        for q in permutations([y1, y2, y3]):
+            valeur=I3322(q_test,p[0],p[1],p[2],q[0],q[1],q[2])
+            if valeur>best_valeur:
+                best_valeur=valeur
+    return best_valeur
+
+
+def q_array_to_dict(q_array): #translate an "array" to a dictionnary -> in_hull use two dictionnaries q (our probabilities) and points 
+    q_dict = {} #empty dictionnary 
+    for x in range(n_A):
+        for y in range(n_B):
+            for a in range(k_A):
+                for b in range(k_B):
+                    q_dict[a, b, x, y] = q_array[a, b, x, y] #dicitionnary contains elements of the array
+    return q_dict
+
+theta1=0.0
+bounds = [
+    (0,2),       #   z 
+     (0, 2*np.pi),        #theta2
+     (0,2*np.pi),      #theta3  
+     (0,2*np.pi),      #theta4
+     (0,1),#r 
+     (0,1) #lamb
+]
+
+points = generate_local_deterministic_strategies(n_A, k_A, n_B, k_B) # generate deterministic local points
+z=0.7335714008077101
+lamb= 0.1211724100290205
+r= 0.9996853572208114
+theta2 = 3.2249676708819317
+theta3 = 2.3645679153523718
+theta4 = 6.2831849470825238
+t=1-r
+N=t+(lamb**2)*r
+probabilities=q(z,theta1,theta2,theta3,theta4,lamb,r) # probabitlies into dictionnaire to use in_hull function to find nu value 
+probadictionnaire=q_array_to_dict(probabilities)
+nu=in_hull(points,probadictionnaire)
+print(nu)
+print(nosignalling(q(z,theta1,theta2,theta3,theta4,lamb,r)))
+#test normalisation
+print(normalised(q(z,theta1,theta2,theta3,theta4,lamb,r)))
+#test negative probabilities
+print(negativity(q(z,theta1,theta2,theta3,theta4,lamb,r)))
+
+np.save("/Users/a.blkmn/mémoire/13:4/tmsv/amplifiedTMSV/ceertifying long range/short path xxn-xxn/xxn-xxn-xxn/short.npy",probabilities)
+
+# 0.8644047819919746
+# True
+# True
+# True
